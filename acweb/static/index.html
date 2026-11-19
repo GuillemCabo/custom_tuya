@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AC Control</title>
+<style>
+:root {
+  --bg: #f4f5f7; --card: #fff; --text: #1d2330; --muted: #6b7385; --line: #e3e6ec;
+  --accent: #2f6fde; --ok: #1f9d55; --bad: #d64545; --heat: #e0592a; --cold: #2b8bd9;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #14171c; --card: #1e2229; --text: #e6e9ef; --muted: #8d95a6; --line: #2d323b;
+          --accent: #6d9cf0; --ok: #3cc47c; --bad: #ef6b6b; --heat: #f07a4a; --cold: #4fa6ec; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+       font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+main { max-width: 980px; margin: 0 auto; padding: 16px; }
+header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+h1 { font-size: 22px; margin: 4px 0; }
+h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 10px; }
+.pill { font-size: 13px; padding: 4px 10px; border-radius: 99px; background: var(--card); border: 1px solid var(--line); }
+.pill b { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; background: var(--bad); }
+.pill.on b { background: var(--ok); }
+.hero { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin: 16px 0; }
+.stat { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+.stat .k { color: var(--muted); font-size: 13px; }
+.stat .v { font-size: 26px; font-weight: 600; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.stat .n { color: var(--muted); font-size: 12px; }
+.presets { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+.preset { border: 0; border-radius: 12px; padding: 18px 12px; font-size: 18px; font-weight: 700; color: #fff; cursor: pointer; }
+.preset small { display: block; font-weight: 400; font-size: 12px; opacity: .9; margin-top: 4px; }
+.preset.heat { background: var(--heat); } .preset.cold { background: var(--cold); }
+.preset:disabled { opacity: .5; cursor: wait; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+.row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 0;
+       border-top: 1px solid var(--line); min-height: 42px; }
+.row:first-of-type { border-top: 0; }
+.row .l { flex: 1; min-width: 0; }
+.row .l small { display: block; color: var(--muted); font-size: 12px; }
+.row .val { font-variant-numeric: tabular-nums; text-align: right; }
+.row.flash { animation: flash 1.2s; }
+@keyframes flash { from { background: color-mix(in srgb, var(--accent) 20%, transparent); } to { background: transparent; } }
+select, input[type=number] { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line);
+       border-radius: 8px; padding: 5px 8px; }
+input[type=number] { width: 70px; text-align: center; }
+.num { display: flex; gap: 4px; align-items: center; }
+.btn { font: inherit; border: 1px solid var(--line); background: var(--bg); color: var(--text); border-radius: 8px;
+       padding: 5px 10px; cursor: pointer; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.switch { position: relative; width: 46px; height: 26px; flex: none; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.switch span { position: absolute; inset: 0; background: var(--line); border-radius: 99px; cursor: pointer; transition: .2s; }
+.switch span::before { content: ""; position: absolute; width: 20px; height: 20px; left: 3px; top: 3px;
+       background: #fff; border-radius: 50%; transition: .2s; }
+.switch input:checked + span { background: var(--accent); }
+.switch input:checked + span::before { transform: translateX(20px); }
+.switch input:disabled + span { opacity: .5; cursor: wait; }
+#log { max-height: 320px; overflow: auto; font-size: 13px; font-variant-numeric: tabular-nums; }
+#log div { padding: 4px 0; border-top: 1px solid var(--line); }
+#log time { color: var(--muted); margin-right: 8px; }
+#toast { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); width: min(520px, calc(100% - 32px));
+         background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px;
+         box-shadow: 0 8px 30px rgba(0,0,0,.25); display: none; font-size: 14px; }
+#toast.show { display: block; }
+#toast .ok { color: var(--ok); } #toast .bad { color: var(--bad); }
+#toast ul { margin: 6px 0 0; padding-left: 18px; }
+.muted { color: var(--muted); }
+label.chk { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1 id="name">Air conditioner</h1>
+      <div class="muted" id="updated">Connecting…</div>
+    </div>
+    <span class="pill" id="conn"><b></b><span>offline</span></span>
+  </header>
+
+  <section class="hero" id="hero"></section>
+
+  <section class="presets">
+    <button class="preset heat" data-preset="max_heat">Max heat<small>Heat · 30 °C · turbo · ECO/quiet/sleep off</small></button>
+    <button class="preset cold" data-preset="max_cold">Max cold<small>Cool · 16 °C · turbo · ECO/quiet/sleep off</small></button>
+  </section>
+
+  <section class="grid">
+    <div class="card"><h2>Main</h2><div id="g-main"></div></div>
+    <div class="card"><h2>Sensors</h2><div id="g-sensor"></div></div>
+    <div class="card"><h2>Comfort & features</h2><div id="g-comfort"></div></div>
+    <div class="card"><h2>Airflow</h2><div id="g-airflow"></div>
+      <h2 style="margin-top:14px">Dehumidifier / other</h2><div id="g-other"></div></div>
+    <div class="card" style="grid-column: 1 / -1">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <h2>Change log</h2>
+        <label class="chk"><input type="checkbox" id="showSensors"> include sensor readings</label>
+      </div>
+      <div id="log"><div class="muted">No changes yet.</div></div>
+    </div>
+  </section>
+</main>
+<div id="toast"></div>
+
+<script>
+let META = null, STATUS = null, busy = false;
+const $ = s => document.querySelector(s);
+const fmt = v => typeof v === 'boolean' ? (v ? 'on' : 'off') : (v ?? '—');
+
+async function api(path, body) {
+  const r = await fetch(path, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                       body: JSON.stringify(body) } : {});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+
+function toast(html, ms = 6000) {
+  const t = $('#toast'); t.innerHTML = html; t.classList.add('show');
+  clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('show'), ms);
+}
+
+function showResults(title, results) {
+  const bad = results.filter(r => !r.accepted);
+  const items = results.map(r => `<li>${r.label}: sent <b>${fmt(r.sent)}</b> → AC reports <b>${fmt(r.reported)}</b>
+     ${r.accepted ? '<span class="ok">✓</span>' : `<span class="bad">✗ ${r.error || 'not accepted'}</span>`}</li>`).join('');
+  toast(`<b>${title}</b> — ${bad.length ? `<span class="bad">${bad.length} not accepted</span>` : '<span class="ok">all accepted</span>'}<ul>${items}</ul>`,
+        bad.length ? 12000 : 6000);
+}
+
+async function send(dp, value) {
+  if (busy) return; busy = true; setDisabled(true);
+  try { const j = await api('/api/set', { dp, value }); showResults(META.dps[dp].label, j.results); }
+  catch (e) { toast(`<span class="bad">Failed:</span> ${e.message}`); }
+  finally { busy = false; setDisabled(false); await refresh(); }
+}
+
+async function preset(name, btn) {
+  if (busy) return; busy = true; setDisabled(true);
+  const old = btn.firstChild.textContent; btn.firstChild.textContent = 'Applying…';
+  try { const j = await api('/api/preset', { name }); showResults(META.presets[name].label, j.results); }
+  catch (e) { toast(`<span class="bad">Failed:</span> ${e.message}`); }
+  finally { btn.firstChild.textContent = old; busy = false; setDisabled(false); await refresh(); }
+}
+
+function setDisabled(d) { document.querySelectorAll('button, input, select').forEach(el => {
+  if (el.id !== 'showSensors') el.disabled = d; }); }
+
+function control(dp, m) {
+  if (m.kind === 'bool' && m.group !== 'sensor') {
+    return `<label class="switch"><input type="checkbox" data-dp="${dp}"><span></span></label>`;
+  }
+  if (m.kind === 'enum') {
+    const opts = m.values.map(v => `<option value="${v}">${(m.names && m.names[v]) || v}</option>`).join('');
+    return `<select data-dp="${dp}">${opts}</select>`;
+  }
+  if (m.kind === 'int') {
+    return `<span class="num"><button class="btn" data-step="-1" data-for="${dp}">−</button>
+      <input type="number" data-dp="${dp}" min="${m.min}" max="${m.max}" step="1">
+      <button class="btn" data-step="1" data-for="${dp}">+</button>
+      <button class="btn primary" data-apply="${dp}">Set</button></span>`;
+  }
+  return `<span class="val" data-val="${dp}">—</span>`;
+}
+
+function build() {
+  for (const [dp, m] of Object.entries(META.dps)) {
+    const host = $('#g-' + m.group); if (!host) continue;
+    const row = document.createElement('div'); row.className = 'row'; row.id = 'row-' + dp;
+    row.innerHTML = `<div class="l">${m.label}<small data-note="${dp}">${m.code} · DP ${dp}</small></div>${control(dp, m)}`;
+    host.appendChild(row);
+  }
+  document.querySelectorAll('input[type=checkbox][data-dp]').forEach(el =>
+    el.addEventListener('change', () => send(el.dataset.dp, el.checked)));
+  document.querySelectorAll('select[data-dp]').forEach(el =>
+    el.addEventListener('change', () => send(el.dataset.dp, el.value)));
+  document.querySelectorAll('[data-step]').forEach(b => b.addEventListener('click', () => {
+    const inp = document.querySelector(`input[data-dp="${b.dataset.for}"]`);
+    const m = META.dps[b.dataset.for];
+    inp.value = Math.min(m.max, Math.max(m.min, (+inp.value || m.min) + (+b.dataset.step)));
+    inp.dataset.dirty = '1';
+  }));
+  document.querySelectorAll('input[type=number]').forEach(el => el.addEventListener('input', () => el.dataset.dirty = '1'));
+  document.querySelectorAll('[data-apply]').forEach(b => b.addEventListener('click', () => {
+    const inp = document.querySelector(`input[data-dp="${b.dataset.apply}"]`);
+    delete inp.dataset.dirty; send(b.dataset.apply, Math.round(+inp.value));
+  }));
+  document.querySelectorAll('[data-preset]').forEach(b => b.addEventListener('click', () => preset(b.dataset.preset, b)));
+  $('#showSensors').addEventListener('change', renderLog);
+}
+
+function val(dp) { return STATUS.values[dp]; }
+function shown(dp) {
+  const v = val(dp); if (!v) return '—';
+  const m = META.dps[dp] || {};
+  return typeof v.value === 'boolean' ? (v.value ? 'yes' : 'no') : `${v.value}${m.unit ? ' ' + m.unit : ''}`;
+}
+
+function renderHero() {
+  const cards = [
+    ['Power', val('1') ? (val('1').value ? 'On' : 'Off') : '—', ''],
+    ['Mode', val('4') ? (META.dps['4'].names[val('4').value] || val('4').value) : '—', ''],
+    ['Target', shown('2'), ''],
+    ['Room', shown('3'), val('3') && val('3').note ? val('3').note : (val('3') ? `raw ${val('3').raw}` : '')],
+    ['Outdoor', shown('128'), val('128') ? `raw ${val('128').raw}` : ''],
+    ['Fan', val('5') ? val('5').value : '—', val('107') && val('107').value ? 'turbo on' : ''],
+  ];
+  $('#hero').innerHTML = cards.map(([k, v, n]) =>
+    `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div><div class="n">${n}</div></div>`).join('');
+}
+
+function renderLog() {
+  const noisy = new Set(META.noisy), all = $('#showSensors').checked;
+  const ev = STATUS.events.filter(e => all || !noisy.has(e.dp));
+  $('#log').innerHTML = ev.length ? ev.map(e => {
+    const t = e.time.replace('T', ' ');
+    return `<div><time>${t}</time>${e.label}: ${fmt(e.old)} → <b>${fmt(e.new)}</b></div>`;
+  }).join('') : '<div class="muted">No changes yet.</div>';
+}
+
+let prev = {};
+function render() {
+  $('#name').textContent = STATUS.name;
+  const c = $('#conn'); c.classList.toggle('on', STATUS.connected);
+  c.querySelector('span').textContent = STATUS.connected ? 'connected' : 'offline';
+  $('#updated').textContent = STATUS.connected
+    ? `Last update ${STATUS.last_update ? STATUS.last_update.replace('T', ' ') : '—'}`
+    : `Not connected${STATUS.last_error ? ': ' + STATUS.last_error : ''}`;
+  for (const [dp, v] of Object.entries(STATUS.values)) {
+    const m = META.dps[dp]; if (!m) continue;
+    const el = document.querySelector(`[data-dp="${dp}"]`);
+    if (el && el.type === 'checkbox') el.checked = !!v.value;
+    else if (el && el.tagName === 'SELECT') el.value = v.value;
+    else if (el && el.type === 'number' && !el.dataset.dirty && document.activeElement !== el) el.value = v.value;
+    const span = document.querySelector(`[data-val="${dp}"]`); if (span) span.textContent = shown(dp);
+    const note = document.querySelector(`[data-note="${dp}"]`);
+    if (note) note.textContent = `${m.code} · DP ${dp}` + (m.convert ? ` · raw ${v.raw}` : '') + (v.note ? ` · ${v.note}` : '');
+    if (prev[dp] !== undefined && prev[dp] !== v.raw) {
+      const row = $('#row-' + dp); if (row) { row.classList.remove('flash'); void row.offsetWidth; row.classList.add('flash'); }
+    }
+    prev[dp] = v.raw;
+  }
+  renderHero(); renderLog();
+}
+
+async function refresh() {
+  try { STATUS = await api('/api/status'); render(); }
+  catch (e) { $('#conn').classList.remove('on'); $('#updated').textContent = 'Web server not reachable'; }
+}
+
+(async () => {
+  META = await api('/api/meta');
+  build();
+  await refresh();
+  setInterval(() => { if (!busy) refresh(); }, 2000);
+})();
+</script>
+</body>
+</html>

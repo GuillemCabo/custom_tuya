@@ -1,0 +1,11 @@
+# Secrets written by `tinytuya wizard`: local keys and cloud API credentials
+devices.json
+tinytuya.json
+tuya-raw.json
+snapshot.json
+
+.venv/
+__pycache__/
+*.pyc
+*.log
+monitor_log.txt
