@@ -13,6 +13,7 @@ Re-running skips files already downloaded and analysed.
 """
 import json
 import queue
+import signal
 import sys
 import threading
 import time
@@ -28,7 +29,12 @@ import detect  # noqa: E402
 import xmfile  # noqa: E402
 from acweb.dvrip import DVRIP  # noqa: E402
 
-WORKERS, CHECK_EVERY, EVENT_GAP = 2, 20, 30  # 2 is fastest; live view and settings are slow meanwhile
+# One download at a time with a pause between files: two parallel downloads plus live viewers made
+# the camera's software stop answering until it recovered by itself.
+WORKERS, PAUSE, CHECK_EVERY, EVENT_GAP = 1, 5.0, 20, 30
+MAX_RATE = 300_000         # bytes/s: gentle on the camera's SD card (it stalled at full speed)
+STALL_LIMIT = 3            # files in a row that fail → stop and let the camera recover
+STOP = threading.Event()   # set by Ctrl-C / SIGTERM: finish cleanly so the camera ends the download
 LENSES = 2
 # keyframes are ~3 s apart: faster background learning per frame than the live 6 fps detector
 detect.ALPHA_BG, detect.ALPHA_FG, detect.RELEARN_FRAMES = 0.25, 0.01, 3
@@ -38,9 +44,20 @@ def local_name(f):
     return Path(f["FileName"].split("/")[-3] if f["FileName"].count("/") >= 3 else "") / Path(f["FileName"]).name
 
 
+def list_files(cfg, begin, end, attempts=10):
+    """The camera answers slowly while it is sending recordings: retry with a long timeout."""
+    for attempt in range(attempts):
+        try:
+            return DVRIP(cfg["ip"], cfg["user"], cfg["password"], timeout=30).files(begin, end)
+        except Exception as e:  # noqa: BLE001
+            print(f"  listing retry {attempt + 1}: {e}", flush=True)
+            time.sleep(20)
+    raise SystemExit("camera did not return the recording list")
+
+
 def downloader(cfg, jobs, done, out_dir):
-    dev = DVRIP(cfg["ip"], cfg["user"], cfg["password"])
-    while True:
+    dev = DVRIP(cfg["ip"], cfg["user"], cfg["password"], timeout=30)
+    while not STOP.is_set():
         try:
             i, f = jobs.get_nowait()
         except queue.Empty:
@@ -54,13 +71,26 @@ def downloader(cfg, jobs, done, out_dir):
             tmp = path.with_suffix(".part")
             try:
                 with open(tmp, "wb") as o:
-                    dev.download(f, o)
-                tmp.replace(path)
+                    dev.download(f, o, stop=STOP, max_rate=MAX_RATE)
+                if STOP.is_set():
+                    return
+                if tmp.stat().st_size >= want:
+                    tmp.replace(path)
             except Exception as e:  # noqa: BLE001
                 print(f"  download retry {attempt + 1} {path.name}: {e}", flush=True)
                 dev.close()
                 time.sleep(3)
-        done[i] = path
+        if path.exists():
+            done[i] = path
+            downloader.failures = 0
+        else:
+            print(f"  giving up on {path.name}", flush=True)
+            done[i] = None
+            downloader.failures = getattr(downloader, "failures", 0) + 1
+            if downloader.failures >= STALL_LIMIT:
+                print("camera stopped sending recordings: stopping so it can recover; re-run to resume", flush=True)
+                STOP.set()
+        time.sleep(PAUSE)
 
 
 def tiles(img, n=2):
@@ -142,15 +172,20 @@ def main():
     rec_dir, out = ROOT / "recordings", ROOT / "recordings" / "scan" / cid
     (out / "files").mkdir(parents=True, exist_ok=True)
     (out / "snaps").mkdir(exist_ok=True)
-    # daytime first (when people are likely), then nights; each in time order
-    files = sorted(DVRIP(cfg["ip"], cfg["user"], cfg["password"]).files(begin, end),
-                   key=lambda f: (not 7 <= int(f["BeginTime"][11:13]) < 21, f["BeginTime"]))
+    # most likely to show people first: daytime files the camera tagged as motion [M], then the rest
+    # of the daytime, then nights; each in time order
+    files = sorted(list_files(cfg, begin, end),
+                   key=lambda f: (not 7 <= int(f["BeginTime"][11:13]) < 21, "[M]" not in f["FileName"],
+                                  f["BeginTime"]))
     print(f"{len(files)} files, {sum(int(f['FileLength'], 16) for f in files) / 1e6:.1f} GB", flush=True)
     jobs, done = queue.Queue(), {}
     for i, f in enumerate(files):
         jobs.put((i, f))
-    for _ in range(WORKERS):
-        threading.Thread(target=downloader, args=(cfg, jobs, done, rec_dir), daemon=True).start()
+    signal.signal(signal.SIGTERM, lambda *a: STOP.set())
+    signal.signal(signal.SIGINT, lambda *a: STOP.set())
+    workers = [threading.Thread(target=downloader, args=(cfg, jobs, done, rec_dir)) for _ in range(WORKERS)]
+    for w in workers:
+        w.start()
 
     det = detect.PersonDetector(str(ROOT / "models" / "yolox_s.onnx"))
     lenses = [detect.LensMotion() for _ in range(LENSES)]
@@ -159,8 +194,15 @@ def main():
         if prev_end and f["BeginTime"] > prev_end:      # jumped ahead in time: start a fresh background
             lenses = [detect.LensMotion() for _ in range(LENSES)]
         prev_end = f["EndTime"]
-        while i not in done:
+        while i not in done and not STOP.is_set():
             time.sleep(1)
+        if STOP.is_set():
+            print("stopping: waiting for the camera to end the current download", flush=True)
+            for w in workers:
+                w.join()
+            return
+        if done[i] is None:
+            continue
         res_file = out / "files" / (local_name(f).name + ".json")
         if res_file.exists():
             records = json.loads(res_file.read_text())
@@ -235,11 +277,10 @@ def summarise(out, files):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1 and sys.argv[1] == "--summary":
-        cid = sys.argv[2] if len(sys.argv) > 2 else "icsee_xm535"
+    if len(sys.argv) > 1 and sys.argv[1] == "--summary":   # --summary <camera> "<from>" "<to>"
+        cid = sys.argv[2]
         cfg = json.loads((ROOT / "cameras.json").read_text())[cid]
         out = ROOT / "recordings" / "scan" / cid   # summary of what has been analysed so far
-        summarise(out, sorted(DVRIP(cfg["ip"], cfg["user"], cfg["password"]).files(
-            "2026-11-14 00:00:00", "2026-11-15 23:59:59"), key=lambda f: f["BeginTime"]))
+        summarise(out, sorted(list_files(cfg, sys.argv[3], sys.argv[4]), key=lambda f: f["BeginTime"]))
     else:
         main()

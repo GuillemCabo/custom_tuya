@@ -7,6 +7,7 @@ import json
 import socket
 import struct
 import threading
+import time
 
 HEADER = struct.Struct("<BB2xII2xHI")  # head 0xFF, version, session, sequence, msg id, data length
 OK_CODES = {100, 515}                  # 515 = success, device will restart
@@ -139,9 +140,11 @@ class DVRIP:
                 return out
             begin = last
 
-    def download(self, f, out, idle_timeout=15):
+    def download(self, f, out, idle_timeout=15, stop=None, max_rate=None):
         """Download one recording (an entry from files()) to the file object `out`. The camera
-        sends it on a second connection claimed with this login's session. Returns bytes written."""
+        sends it on a second connection claimed with this login's session. Returns bytes written.
+        max_rate (bytes/s) reads slowly so the camera sends slowly: full-speed reads of its SD card
+        while it records can stall all of its services for minutes."""
         params = {"Action": "Claim", "StartTime": f["BeginTime"], "EndTime": f["EndTime"],
                   "Parameter": {"PlayMode": "ByName", "FileName": f["FileName"], "StreamType": 0,
                                 "Value": 0, "TransMode": "TCP"}}
@@ -166,7 +169,7 @@ class DVRIP:
             return buf
 
         expected = int(f.get("FileLength", "0x0"), 16) * 1024   # FileLength is in KB
-        written = 0
+        written, started = 0, time.monotonic()
         try:
             send(data, 0, 1424, {"Name": "OPPlayBack", "OPPlayBack": params})          # claim
             _, _, _, _, msg, length = HEADER.unpack(recv(data, HEADER.size))
@@ -183,7 +186,11 @@ class DVRIP:
                     break
                 out.write(recv(data, length))
                 written += length
-                if expected and written >= expected:
+                if max_rate:
+                    ahead = written / max_rate - (time.monotonic() - started)
+                    if ahead > 0:
+                        time.sleep(ahead)
+                if expected and written >= expected or stop is not None and stop.is_set():
                     break
         finally:
             try:
