@@ -117,6 +117,26 @@ def persons_in(det, img, boxes_px, conf=detect.PERSON_CONF):
     return out
 
 
+def warm_up(lenses, rec_dir, f):
+    """Learn the background from the latest recording on disk that ends before f starts.
+
+    The background is kept across gaps in time (the room is static; light changes, IR switching and
+    PTZ moves are handled by the model), so short motion clips [M] are compared with the room as it
+    was, instead of spending their few keyframes learning it."""
+    begin = f["BeginTime"].replace("-", "").replace(" ", "").replace(":", "")
+    best = None
+    for p in rec_dir.glob("*/*.h264"):
+        try:
+            end = p.parent.name.replace("-", "") + p.name.split("-")[1][:8].replace(".", "")
+        except IndexError:
+            continue
+        if end <= begin and "[M]" not in p.name and (best is None or end > best[0]):
+            best = (end, p)
+    if best:
+        print(f"  learning the background from {best[1].parent.name}/{best[1].name}", flush=True)
+        analyse(best[1], lenses, None, 1)
+
+
 def analyse(path, lenses, det, start_index):
     """Run motion + person checks over one file's keyframes. Returns list of keyframe records."""
     data = path.read_bytes()
@@ -138,11 +158,11 @@ def analyse(path, lenses, det, start_index):
             for x, y, w, h in detect.regions(lens.changed):
                 found.append([x / bw, (i + y / bh) / LENSES, w / bw, h / bh / LENSES])
         rec = dict(time=when.isoformat() if when else None, regions=[[round(v, 4) for v in r] for r in found])
-        if found:
+        if found and det:
             crops = [(x0, y0, img[y0:y0 + side, x0:x0 + side]) for x0, y0, side in detect.crops_for(found, W, H, LENSES)]
             rec["persons"] = [p for p in persons_in(det, img, crops)
                               if any(detect.overlaps(p["box"], r) for r in found)]
-        if (start_index + k) % CHECK_EVERY == 0:
+        if det and (start_index + k) % CHECK_EVERY == 0:
             rec["brute"] = persons_in(det, img, list(tiles(img)), 0.5)   # stricter: no motion to confirm
         if rec.get("persons") or (rec.get("brute") and not rec.get("persons")):
             rec["_img"] = img
@@ -189,11 +209,8 @@ def main():
 
     det = detect.PersonDetector(str(ROOT / "models" / "yolox_s.onnx"))
     lenses = [detect.LensMotion() for _ in range(LENSES)]
-    t0, index, prev_end = time.time(), 0, None
+    t0, index = time.time(), 0
     for i, f in enumerate(files):
-        if prev_end and f["BeginTime"] > prev_end:      # jumped ahead in time: start a fresh background
-            lenses = [detect.LensMotion() for _ in range(LENSES)]
-        prev_end = f["EndTime"]
         while i not in done and not STOP.is_set():
             time.sleep(1)
         if STOP.is_set():
@@ -208,6 +225,8 @@ def main():
             records = json.loads(res_file.read_text())
             index += len(records)
             continue
+        if lenses[0].bg is None:
+            warm_up(lenses, rec_dir, f)
         try:
             records = analyse(done[i], lenses, det, index)
         except Exception as e:  # noqa: BLE001

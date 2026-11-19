@@ -143,7 +143,13 @@ saturation that only amplified a blue cast, so saturation was set back by hand.
 ## Scanning recordings
 
 `tools/scan_recordings.py "<from>" "<to>"` downloads the camera's SD-card recordings over DVRIP
-(about 1 MB/s; live view and settings are slow meanwhile), unpacks Xiongmai's `.h264` container
+(live view and settings are slow meanwhile), unpacks Xiongmai's `.h264` container
 (`tools/xmfile.py`), and runs the same motion model on every keyframe (~3 s apart) with person
 checks, plus a brute-force whole-image person search on every 20th keyframe for comparison.
 Results go to `recordings/scan/<camera>/` (gitignored): `events.json` and snapshots.
+
+Recordings are scanned slowly (about 300 KB/s, one file at a time) because faster downloads made the
+camera stop answering until it was power-cycled; the scan stops by itself if the camera stalls and
+resumes where it left off. Motion clips (`[M]`, about 12 s) go first. The learnt background is kept
+across gaps between files, so a short clip is compared with the empty room rather than spending its
+few keyframes learning it.
