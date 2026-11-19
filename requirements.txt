@@ -1,1 +1,5 @@
 tinytuya>=1.21
+# tools/ (image tuning, recording scan): not needed by the web interface
+opencv-contrib-python-headless>=4.10
+numpy>=2.0
+av>=13

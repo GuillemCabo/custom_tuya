@@ -68,6 +68,9 @@ input[type=number] { width: 70px; text-align: center; }
 #toast .ok { color: var(--ok); } #toast .bad { color: var(--bad); }
 #toast ul { margin: 6px 0 0; padding-left: 18px; }
 .muted { color: var(--muted); }
+.nav { display: flex; gap: 4px; background: var(--card); border: 1px solid var(--line); border-radius: 99px; padding: 3px; }
+.nav a { color: var(--muted); text-decoration: none; padding: 4px 12px; border-radius: 99px; font-size: 14px; }
+.nav a.on { background: var(--accent); color: #fff; }
 label.chk { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
 </style>
 </head>
@@ -78,7 +81,10 @@ label.chk { font-size: 13px; color: var(--muted); display: flex; align-items: ce
       <h1 id="name">Air conditioner</h1>
       <div class="muted" id="updated">Connecting…</div>
     </div>
-    <span class="pill" id="conn"><b></b><span>offline</span></span>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <nav class="nav"><a href="/" class="on">Air conditioner</a><a href="/cameras">Cameras</a></nav>
+      <span class="pill" id="conn"><b></b><span>offline</span></span>
+    </div>
   </header>
 
   <section class="hero" id="hero"></section>

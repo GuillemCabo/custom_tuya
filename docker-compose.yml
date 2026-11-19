@@ -1,0 +1,33 @@
+# Video conversion for the camera page: go2rtc pulls each camera's RTSP stream once and serves it
+# to browsers (MSE over WebSocket). H.265 goes through untouched when the browser can decode it;
+# otherwise go2rtc starts ffmpeg and transcodes to H.264 (and PCMA audio to AAC) on demand.
+#
+# Streams are not in this file: acweb registers them through the go2rtc API from cameras.json
+# (gitignored, holds the camera logins), so no password ends up in git.
+services:
+  go2rtc:
+    image: alexxit/go2rtc:1.9.9
+    container_name: tuya-go2rtc
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8321:1984"   # API, players, WebSocket streams, snapshots
+      - "127.0.0.1:8322:8554"   # RTSP re-stream (e.g. rtsp://127.0.0.1:8322/<camera id> in VLC)
+    volumes:
+      - ./go2rtc/go2rtc.yaml:/config/go2rtc.yaml:ro
+
+  # Motion and person detection (detector/detect.py): reads the substreams from go2rtc, ignores
+  # light changes and shadows, checks moving areas for people on full-resolution frames.
+  detector:
+    build: ./detector
+    container_name: tuya-detect
+    restart: unless-stopped
+    depends_on: [go2rtc]
+    ports:
+      - "127.0.0.1:8323:8000"   # /api/state, /api/events, /events/<id>.jpg, /api/debug.jpg
+    environment:
+      # camera id : analysis stream : full-resolution stream : lenses stacked vertically
+      CAMERAS: "icsee_xm535:icsee_xm535_sub:icsee_xm535:2"
+    volumes:
+      - ./models:/models:ro      # yolox_s.onnx, fetched by tools/get_models.sh
+      - ./detections:/data       # events.json and event snapshots
+      - /etc/localtime:/etc/localtime:ro   # event times in local time

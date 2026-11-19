@@ -9,3 +9,10 @@ __pycache__/
 *.pyc
 *.log
 monitor_log.txt
+
+# Camera logins
+cameras.json
+tuning/
+models/
+detections/
+recordings/

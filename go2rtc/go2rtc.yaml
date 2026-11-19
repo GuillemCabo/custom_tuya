@@ -1,0 +1,12 @@
+# Mounted read-only so streams added through the API (which contain camera logins) stay in memory
+# and are never written back to this tracked file.
+api:
+  listen: ":1984"
+  origin: "*"          # the camera page on :8320 loads players and WebSockets from :8321
+rtsp:
+  listen: ":8554"
+webrtc:
+  listen: ""           # MSE over WebSocket works through WSL/Docker port forwarding; WebRTC/UDP does not
+log:
+  level: info
+streams: {}

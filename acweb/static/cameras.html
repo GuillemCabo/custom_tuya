@@ -1,0 +1,535 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cameras</title>
+<style>
+:root { color-scheme: light dark;
+  --bg: #f4f5f7; --card: #fff; --text: #1d2330; --muted: #6b7385; --line: #e3e6ec;
+  --accent: #2f6fde; --ok: #1f9d55; --bad: #d64545; --warn: #c27c0e; --video: #0d0f13;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #14171c; --card: #1e2229; --text: #e6e9ef; --muted: #8d95a6; --line: #2d323b;
+          --accent: #6d9cf0; --ok: #3cc47c; --bad: #ef6b6b; --warn: #e3a63a; --video: #000; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+       font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+main { max-width: 1280px; margin: 0 auto; padding: 16px; }
+header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+h1 { font-size: 22px; margin: 4px 0; }
+h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 10px; }
+nav { display: flex; gap: 4px; background: var(--card); border: 1px solid var(--line); border-radius: 99px; padding: 3px; }
+nav a { color: var(--muted); text-decoration: none; padding: 4px 12px; border-radius: 99px; font-size: 14px; }
+nav a.on { background: var(--accent); color: #fff; }
+.muted { color: var(--muted); }
+.banner { background: color-mix(in srgb, var(--warn) 15%, var(--card)); border: 1px solid var(--warn); border-radius: 12px;
+          padding: 10px 14px; margin-bottom: 16px; display: none; }
+.banner.show { display: block; }
+code { font-size: 13px; background: var(--bg); padding: 1px 5px; border-radius: 5px; }
+
+/* grid */
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+.tile { background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; cursor: pointer;
+        display: flex; flex-direction: column; transition: border-color .15s; }
+.tile:hover { border-color: var(--accent); }
+.tile .screen { aspect-ratio: 4 / 3; }
+.tile .bar { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 12px; }
+.tile .bar b { font-weight: 600; } .tile .bar small { color: var(--muted); display: block; font-size: 12px; }
+.screen { background: var(--video); position: relative; display: flex; align-items: center; justify-content: center;
+          color: #aab; text-align: center; overflow: hidden; }
+.screen cam-video, .screen video { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.screen video { position: absolute !important; inset: 0; width: 100% !important; height: 100% !important;
+                object-fit: contain; background: var(--video); }
+.screen .msg { padding: 16px; font-size: 14px; max-width: 420px; z-index: 1; }
+.screen .msg .btn { margin-top: 10px; }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--bad); flex: none; display: inline-block; }
+.dot.on { background: var(--ok); }
+.pill { font-size: 13px; padding: 4px 10px; border-radius: 99px; background: var(--card); border: 1px solid var(--line);
+        display: inline-flex; align-items: center; gap: 6px; }
+
+/* detail */
+#detail { display: none; }
+body.detail #detail { display: block; } body.detail #grid { display: none; }
+.dhead { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+.dhead h2 { margin: 0; font-size: 20px; color: var(--text); text-transform: none; letter-spacing: 0; }
+.layout { display: grid; grid-template-columns: minmax(0, 1fr) 420px; gap: 12px; align-items: start; }
+@media (max-width: 980px) { .layout { grid-template-columns: 1fr; } }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+.player { padding: 0; overflow: hidden; }
+.player .screen { width: 100%; height: clamp(260px, 74vh, 980px); }
+.toolbar { display: flex; gap: 6px; flex-wrap: wrap; padding: 10px; border-top: 1px solid var(--line); align-items: center; }
+.toolbar .sep { flex: 1; }
+.btn { font: inherit; font-size: 14px; border: 1px solid var(--line); background: var(--bg); color: var(--text); border-radius: 8px;
+       padding: 6px 11px; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
+.btn:hover { border-color: var(--accent); }
+.btn.on, .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.danger { color: var(--bad); }
+.btn:disabled { opacity: .5; cursor: wait; }
+.ptzwrap { display: flex; gap: 18px; flex-wrap: wrap; align-items: flex-start; margin-top: 12px; }
+.pad { display: grid; grid-template-columns: repeat(3, 52px); grid-template-rows: repeat(3, 52px); gap: 6px; }
+.pad button, .zoom button { font-size: 20px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg);
+       color: var(--text); cursor: pointer; touch-action: none; user-select: none; -webkit-user-select: none; }
+.pad button:active, .pad button.held, .zoom button.held { background: var(--accent); color: #fff; border-color: var(--accent); }
+.pad .mid { border: 0; background: transparent; cursor: default; font-size: 12px; color: var(--muted); }
+.zoom { display: grid; grid-template-columns: 52px 52px; gap: 6px; }
+.zoom button { height: 52px; font-size: 14px; }
+.presets { flex: 1; min-width: 200px; }
+.presets .list { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.tabs { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 10px; }
+.tabs button { font: inherit; font-size: 13px; border: 1px solid var(--line); background: var(--bg); color: var(--muted);
+               border-radius: 99px; padding: 4px 11px; cursor: pointer; }
+.tabs button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+#panel { max-height: calc(100vh - 220px); overflow: auto; padding-right: 10px; scrollbar-gutter: stable; }
+@media (max-width: 980px) { #panel { max-height: none; } }
+.row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0;
+       border-top: 1px solid var(--line); min-height: 44px; }
+.row:first-child { border-top: 0; }
+.row .l { flex: 1; min-width: 0; }
+.row .l small { display: block; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.row .val { font-variant-numeric: tabular-nums; text-align: right; overflow-wrap: anywhere; max-width: 60%; }
+.row.flash { animation: flash 1.2s; }
+@keyframes flash { from { background: color-mix(in srgb, var(--accent) 22%, transparent); } to { background: transparent; } }
+.ctl { display: flex; align-items: center; gap: 6px; }
+.ctl output { min-width: 30px; text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+input[type=range] { width: 150px; accent-color: var(--accent); }
+select, input[type=number], input[type=text], input[type=time], textarea {
+  font: inherit; font-size: 14px; color: var(--text); background: var(--bg); border: 1px solid var(--line);
+  border-radius: 8px; padding: 5px 8px; }
+select { max-width: 230px; }
+input[type=number] { width: 90px; } input[type=text] { width: 170px; }
+textarea { width: 100%; min-height: 360px; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.switch { position: relative; width: 46px; height: 26px; flex: none; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.switch span { position: absolute; inset: 0; background: var(--line); border-radius: 99px; cursor: pointer; transition: .2s; }
+.switch span::before { content: ""; position: absolute; width: 20px; height: 20px; left: 3px; top: 3px;
+       background: #fff; border-radius: 50%; transition: .2s; }
+.switch input:checked + span { background: var(--accent); }
+.switch input:checked + span::before { transform: translateX(20px); }
+.switch input:disabled + span { opacity: .5; cursor: wait; }
+.stage { position: relative; }
+#ov { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; }
+.badge { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 99px; color: #fff; display: none; }
+.badge.motion { display: inline-block; background: #d9822b; } .badge.person { display: inline-block; background: #1f9d55; }
+.events { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.ev { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; text-decoration: none; color: var(--text); font-size: 12px; }
+.ev img { width: 100%; aspect-ratio: 8 / 9; object-fit: cover; display: block; background: var(--video); }
+.ev div { padding: 5px 7px; } .ev b.person { color: var(--ok); } .ev b.motion { color: #d9822b; }
+#toast { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); width: min(520px, calc(100% - 32px));
+         background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; z-index: 10;
+         box-shadow: 0 8px 30px rgba(0,0,0,.25); display: none; font-size: 14px; }
+#toast.show { display: block; }
+.ok { color: var(--ok); } .bad { color: var(--bad); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1>Cameras</h1>
+      <div class="muted" id="sub">Loading…</div>
+    </div>
+    <nav><a href="/">Air conditioner</a><a href="/cameras" class="on">Cameras</a></nav>
+  </header>
+  <div class="banner" id="banner"></div>
+
+  <section id="grid"><div class="tiles" id="tiles"></div></section>
+
+  <section id="detail">
+    <div class="dhead">
+      <a class="btn" href="#">← All cameras</a>
+      <span class="dot" id="d-dot"></span>
+      <h2 id="d-name"></h2>
+      <span class="muted" id="d-meta"></span>
+    </div>
+    <div class="layout">
+      <div>
+        <div class="card player">
+          <div class="stage" id="stage"><div class="screen" id="d-screen"></div><canvas id="ov"></canvas></div>
+          <div class="toolbar">
+            <button class="btn" id="b-hd">HD</button>
+            <button class="btn" id="b-mute">🔇 Sound off</button>
+            <button class="btn on" id="b-ov" title="Draw what the detector sees">▣ Detection</button>
+            <span class="badge" id="d-badge"></span>
+            <span class="sep"></span>
+            <a class="btn" id="b-snap" target="_blank" rel="noopener">📷 Snapshot</a>
+            <button class="btn" id="b-full">⛶ Full screen</button>
+          </div>
+        </div>
+        <div class="card" id="det" style="margin-top:12px">
+          <h2>Detections <span class="muted" id="det-status" style="text-transform:none;letter-spacing:0"></span></h2>
+          <div class="events" id="events"><span class="muted">No events yet.</span></div>
+        </div>
+        <div class="card" id="ptz" style="margin-top:12px">
+          <h2>Pan / tilt / zoom <span class="muted" style="text-transform:none;letter-spacing:0">— hold to move</span></h2>
+          <div class="ptzwrap">
+            <div class="pad">
+              <!-- horizontal directions are swapped on purpose: this camera's motor turns opposite to its labels -->
+              <button data-ptz="DirectionRightUp">↖</button><button data-ptz="DirectionUp">↑</button><button data-ptz="DirectionLeftUp">↗</button>
+              <button data-ptz="DirectionRight">←</button><button class="mid" disabled>PTZ</button><button data-ptz="DirectionLeft">→</button>
+              <button data-ptz="DirectionRightDown">↙</button><button data-ptz="DirectionDown">↓</button><button data-ptz="DirectionLeftDown">↘</button>
+            </div>
+            <div class="zoom">
+              <button data-ptz="ZoomTile">Zoom +</button><button data-ptz="ZoomWide">Zoom −</button>
+              <button data-ptz="FocusNear">Focus near</button><button data-ptz="FocusFar">Focus far</button>
+            </div>
+            <div class="presets">
+              <h2>Presets</h2>
+              <div class="list" id="presets"></div>
+              <div class="list" id="tour" style="margin-top:8px"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="tabs" id="tabs"></div>
+        <div id="panel"><div class="muted">Loading settings…</div></div>
+      </div>
+    </div>
+  </section>
+</main>
+<div id="toast"></div>
+
+<script type="module">
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const fmt = v => Array.isArray(v) && v.length === 2 && v.every(Number.isInteger) ? hm(v)
+  : typeof v === 'boolean' ? (v ? 'on' : 'off') : (v ?? '—');
+const hm = v => `${String(v[0]).padStart(2, '0')}:${String(v[1]).padStart(2, '0')}`;
+let LIST = null, G = null, CAM = null, SET = null, TAB = null, HD = true, MUTED = true, busy = false;
+
+async function api(path, body) {
+  const r = await fetch(path, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                       body: JSON.stringify(body) } : {});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+function toast(html, ms = 6000) {
+  const t = $('#toast'); t.innerHTML = html; t.classList.add('show');
+  clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('show'), ms);
+}
+function banner(html) { const b = $('#banner'); b.innerHTML = html || ''; b.classList.toggle('show', !!html); }
+
+// ---------- video (go2rtc player, MSE over WebSocket) ----------
+let playerReady = null;
+async function loadPlayer() {
+  if (!playerReady) playerReady = (async () => {
+    const { VideoRTC } = await import(`${G}/video-rtc.js`);
+    class CamVideo extends VideoRTC {
+      oninit() { super.oninit(); this.video.controls = false; this.video.muted = true; }
+    }
+    customElements.define('cam-video', CamVideo);
+  })();
+  return playerReady;
+}
+async function mount(screen, stream, { audio = false } = {}) {
+  screen.innerHTML = '<div class="msg">Connecting…</div>';
+  try { await loadPlayer(); } catch (e) {
+    screen.innerHTML = `<div class="msg">Video player not reachable at ${esc(G)}.<br>Is go2rtc running? <code>docker compose up -d</code></div>`;
+    return null;
+  }
+  const v = document.createElement('cam-video');
+  v.mode = 'mse';
+  v.media = audio ? 'video,audio' : 'video';
+  v.background = false;
+  screen.innerHTML = ''; screen.appendChild(v);
+  v.src = `${G}/api/ws?src=${encodeURIComponent(stream)}`;
+  return v;
+}
+
+// ---------- grid ----------
+function tile(c) {
+  const el = document.createElement('div'); el.className = 'tile';
+  el.innerHTML = `<div class="screen"></div><div class="bar"><div><b>${esc(c.name)}</b>
+    <small>${esc(c.kind === 'icsee' ? 'iCSee · local' : 'Tuya · cloud')}${c.model ? ' · ' + esc(c.model) : ''}</small></div>
+    <span><span class="badge" data-badge="${esc(c.id)}"></span> <span class="dot ${c.online ? 'on' : ''}" title="${c.online ? 'online' : 'offline'}"></span></span></div>`;
+  el.addEventListener('click', e => { if (!e.target.closest('button')) location.hash = c.id; });
+  const screen = el.querySelector('.screen');
+  if (c.grid_stream) mount(screen, c.grid_stream);
+  else screen.innerHTML = tuyaMsg(c);
+  screen.querySelector('[data-connect]')?.addEventListener('click', () => connect(c.id));
+  return el;
+}
+function tuyaMsg(c) {
+  return `<div class="msg">${c.online ? 'Live video comes from the Tuya cloud.' : 'Camera is offline (per Tuya cloud).'}
+    ${c.connect_error ? `<br><span class="bad">${esc(c.connect_error)}</span>` : ''}
+    <br><button class="btn" data-connect>Try live video</button></div>`;
+}
+async function connect(id) {
+  const c = LIST.cameras.find(x => x.id === id);
+  try { Object.assign(c, await api(`/api/cameras/${id}/connect`, {})); c.connect_error = null; }
+  catch (e) { c.connect_error = e.message; }
+  route();
+}
+function renderGrid() {
+  const host = $('#tiles'); host.innerHTML = '';
+  LIST.cameras.forEach(c => host.appendChild(tile(c)));
+}
+
+// ---------- detail ----------
+async function openCam(id) {
+  CAM = LIST.cameras.find(c => c.id === id);
+  if (!CAM) { location.hash = ''; return; }
+  $('#tiles').innerHTML = '';   // stop grid streams while one camera is open
+  $('#d-name').textContent = CAM.name;
+  $('#d-dot').className = 'dot' + (CAM.online ? ' on' : '');
+  $('#d-meta').textContent = [CAM.kind === 'icsee' ? 'iCSee · ' + (CAM.ip || '') : 'Tuya cloud', CAM.model].filter(Boolean).join(' · ');
+  $('#ptz').style.display = CAM.ptz ? '' : 'none';
+  $('#presets').innerHTML = (CAM.presets || []).map(p => `<button class="btn" data-preset="${p.id}">${esc(p.name)}</button>`).join('')
+    || '<span class="muted">None saved.</span>';
+  $('#tour').innerHTML = CAM.tour ? `<button class="btn" data-tour="StartTour">▶ Start patrol</button>
+    <button class="btn" data-tour="StopTour">■ Stop patrol</button>` : '';
+  playDetail();
+  loadEvents();
+  SET = null; $('#tabs').innerHTML = ''; $('#panel').innerHTML = '<div class="muted">Loading settings…</div>';
+  await loadSettings();
+}
+function playDetail() {
+  const scr = $('#d-screen');
+  const stream = HD ? CAM.stream : (CAM.grid_stream || CAM.stream);
+  $('#b-hd').classList.toggle('on', HD); $('#b-hd').style.display = CAM.kind === 'icsee' ? '' : 'none';
+  if (!stream) { scr.innerHTML = tuyaMsg(CAM); scr.querySelector('[data-connect]')?.addEventListener('click', () => connect(CAM.id)); return; }
+  $('#b-snap').href = `${G}/api/frame.jpeg?src=${encodeURIComponent(stream)}`;
+  mount(scr, stream, { audio: true }).then(v => { if (v) setMuted(MUTED); });
+}
+function setMuted(m) {
+  MUTED = m;
+  const v = $('#d-screen video'); if (v) { v.muted = m; if (!m) v.play().catch(() => {}); }
+  $('#b-mute').textContent = m ? '🔇 Sound off' : '🔊 Sound on';
+  $('#b-mute').classList.toggle('on', !m);
+}
+$('#b-hd').onclick = () => { HD = !HD; playDetail(); };
+$('#b-mute').onclick = () => setMuted(!MUTED);
+$('#b-full').onclick = () => { const s = $('#stage'); (document.fullscreenElement ? document.exitFullscreen() : s.requestFullscreen()).catch(() => {}); };
+
+// PTZ: hold to move, release to stop; re-send while held so the server's safety stop doesn't kick in
+document.querySelectorAll('[data-ptz]').forEach(b => {
+  let timer = null;
+  const start = e => { e.preventDefault(); b.setPointerCapture?.(e.pointerId); b.classList.add('held');
+    const send = () => api(`/api/cameras/${CAM.id}/ptz`, { command: b.dataset.ptz }).catch(err => toast(`<span class="bad">PTZ:</span> ${esc(err.message)}`));
+    send(); timer = setInterval(send, 3000); };
+  const stop = () => { if (!timer) return; clearInterval(timer); timer = null; b.classList.remove('held');
+    api(`/api/cameras/${CAM.id}/ptz`, { command: b.dataset.ptz, stop: true }).catch(() => {}); };
+  b.addEventListener('pointerdown', start);
+  ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(ev => b.addEventListener(ev, stop));
+});
+$('#ptz').addEventListener('click', async e => {
+  const p = e.target.closest('[data-preset]'), t = e.target.closest('[data-tour]');
+  try {
+    if (p) { await api(`/api/cameras/${CAM.id}/ptz`, { command: 'GotoPreset', preset: +p.dataset.preset }); toast(`Moving to <b>${esc(p.textContent)}</b>`, 2500); }
+    if (t) { await api(`/api/cameras/${CAM.id}/ptz`, { command: t.dataset.tour }); toast(t.dataset.tour === 'StartTour' ? 'Patrol started' : 'Patrol stopped', 2500); }
+  } catch (err) { toast(`<span class="bad">PTZ:</span> ${esc(err.message)}`); }
+});
+
+// ---------- settings ----------
+async function loadSettings() {
+  const id = CAM.id;
+  try { const s = await api(`/api/cameras/${id}/settings`); if (CAM?.id !== id) return; SET = s; }
+  catch (e) { $('#panel').innerHTML = `<div class="bad">Couldn't read settings: ${esc(e.message)}</div>`; return; }
+  const groups = [...new Set(SET.fields.map(f => f.group))];
+  const tabs = [...groups, ...(SET.raw_configs.length ? ['Advanced'] : []), 'Info'];
+  if (!tabs.includes(TAB)) TAB = tabs[0];
+  $('#tabs').innerHTML = tabs.map(t => `<button data-tab="${esc(t)}" class="${t === TAB ? 'on' : ''}">${esc(t)}</button>`).join('');
+  renderPanel();
+}
+$('#tabs').addEventListener('click', e => { const b = e.target.closest('[data-tab]'); if (!b) return;
+  TAB = b.dataset.tab; document.querySelectorAll('#tabs button').forEach(x => x.classList.toggle('on', x === b)); renderPanel(); });
+
+function control(f) {
+  const v = f.value;
+  if (f.readonly) {
+    const s = typeof v === 'string' && v.length > 60 ? v.slice(0, 57) + '…' : fmt(v);
+    return `<span class="val">${esc(s)}${f.unit ? ' ' + esc(f.unit) : ''}</span>`;
+  }
+  switch (f.kind) {
+    case 'bool': case 'hexbool': {
+      const on = f.kind === 'hexbool' ? v !== '0x00000000' : !!v;
+      return `<label class="switch"><input type="checkbox" data-k="${f.key}" ${on ? 'checked' : ''}><span></span></label>`;
+    }
+    case 'range':
+      return `<span class="ctl"><input type="range" data-k="${f.key}" min="${f.min}" max="${f.max}" value="${v}"
+        oninput="this.nextElementSibling.value=this.value"><output>${v}</output></span>`;
+    case 'select': {
+      const opts = [...f.options]; if (!opts.some(o => String(o[0]) === String(v))) opts.push([v, `Other: ${v}`]);
+      return `<select data-k="${f.key}">${opts.map(([val, label]) =>
+        `<option value="${esc(val)}" ${String(val) === String(v) ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select>`;
+    }
+    case 'number':
+      return `<span class="ctl"><input type="number" data-k="${f.key}" min="${f.min ?? ''}" max="${f.max ?? ''}" value="${v}">
+        ${f.unit ? esc(f.unit) : ''}<button class="btn primary" data-apply="${f.key}">Set</button></span>`;
+    case 'hm':
+      return `<span class="ctl"><input type="time" data-k="${f.key}" value="${hm(v)}"><button class="btn primary" data-apply="${f.key}">Set</button></span>`;
+    default:
+      return `<span class="ctl"><input type="text" data-k="${f.key}" maxlength="${f.maxlen || 200}" value="${esc(v)}">
+        <button class="btn primary" data-apply="${f.key}">Set</button></span>`;
+  }
+}
+function renderPanel() {
+  const p = $('#panel');
+  if (TAB === 'Info') return renderInfo(p);
+  if (TAB === 'Advanced') return renderAdvanced(p);
+  const fields = SET.fields.filter(f => f.group === TAB);
+  p.innerHTML = fields.map(f => `<div class="row" id="r-${f.key}"><div class="l">${esc(f.label)}
+    ${f.note ? `<small>${esc(f.note)}</small>` : ''}</div>${control(f)}</div>`).join('')
+    + (TAB === 'Image' && CAM.kind === 'icsee' ? `<div style="margin-top:12px"><button class="btn danger" id="reset-image">↺ Reset image settings</button></div>` : '');
+  $('#reset-image')?.addEventListener('click', resetImage);
+  p.querySelectorAll('input[type=checkbox][data-k]').forEach(el => el.addEventListener('change', () => setField(el.dataset.k, el.checked, el)));
+  p.querySelectorAll('select[data-k], input[type=range][data-k]').forEach(el => el.addEventListener('change', () => setField(el.dataset.k, el.value, el)));
+  p.querySelectorAll('[data-apply]').forEach(b => b.addEventListener('click', () => {
+    const el = p.querySelector(`[data-k="${b.dataset.apply}"]`); setField(b.dataset.apply, el.value, el); }));
+  p.querySelectorAll('input[type=number][data-k], input[type=text][data-k], input[type=time][data-k]').forEach(el =>
+    el.addEventListener('keydown', e => { if (e.key === 'Enter') setField(el.dataset.k, el.value, el); }));
+}
+async function setField(key, value, el) {
+  const f = SET.fields.find(x => x.key === key);
+  if (f.confirm && !confirm(f.confirm)) { renderPanel(); return; }
+  if (busy) return; busy = true;
+  const ctl = document.querySelectorAll('#panel input, #panel select, #panel button'); ctl.forEach(c => c.disabled = true);
+  try {
+    const r = (await api(`/api/cameras/${CAM.id}/set`, { key, value })).results[0];
+    f.value = r.reported;
+    toast(`<b>${esc(r.label)}</b>: sent <b>${esc(fmt(r.sent))}</b> → camera reports <b>${esc(fmt(r.reported))}</b>
+      ${r.accepted ? '<span class="ok">✓</span>' : `<span class="bad">✗ ${esc(r.error || 'not accepted')}</span>`}`, r.accepted ? 4000 : 10000);
+    if (key === 'title' && r.reported) { CAM.name = r.reported; $('#d-name').textContent = r.reported; }
+  } catch (e) { toast(`<span class="bad">Failed:</span> ${esc(e.message)}`, 10000); }
+  finally {
+    busy = false; renderPanel();
+    const row = $('#r-' + key); if (row) { row.classList.remove('flash'); void row.offsetWidth; row.classList.add('flash'); }
+  }
+}
+async function resetImage() {
+  if (busy || !confirm('Reset all image settings (brightness, contrast, colour, mirror/flip, exposure, noise reduction, defog…) to factory values?')) return;
+  busy = true; document.querySelectorAll('#panel input, #panel select, #panel button').forEach(c => c.disabled = true);
+  try {
+    const r = await api(`/api/cameras/${CAM.id}/action`, { action: 'reset_image' });
+    const bad = r.results.filter(x => !x.accepted);
+    toast(`<b>${esc(r.message)}</b> ${bad.length ? `<span class="bad">${bad.length} not accepted</span>` : '<span class="ok">all accepted ✓</span>'}
+      ${bad.length ? `<ul>${bad.map(x => `<li>${esc(x.label)}: sent ${esc(fmt(x.sent))} → ${esc(fmt(x.reported))} ${esc(x.error || '')}</li>`).join('')}</ul>` : ''}`,
+      bad.length ? 12000 : 5000);
+  } catch (e) { toast(`<span class="bad">Reset failed:</span> ${esc(e.message)}`, 10000); }
+  finally { busy = false; await loadSettings(); }
+}
+function renderInfo(p) {
+  const i = SET.info, rows = [];
+  const add = (k, v) => { if (v !== undefined && v !== null && v !== '') rows.push(`<div class="row"><div class="l">${esc(k)}</div><span class="val">${esc(fmt(v))}</span></div>`); };
+  add('Model', i.model || i.product); add('Firmware', i.firmware); add('Firmware built', i.built); add('Serial', i.serial);
+  add('Category', i.category); add('MAC', i.mac); add('Online', i.online);
+  if (i.uptime_min) add('Running for', `${Math.floor(i.uptime_min / 1440)} d ${Math.floor(i.uptime_min % 1440 / 60)} h`);
+  add('Wi-Fi network', i.wifi_ssid); add('Recording storage', i.storage);
+  if (CAM.ip) add('Address', CAM.ip);
+  if (CAM.stream) add('RTSP for VLC (via go2rtc)', `rtsp://${location.hostname}:8322/${CAM.stream}`);
+  const errs = Object.entries(SET.errors || {}).map(([k, v]) => `<div class="row"><div class="l">${esc(k)}<small class="bad">${esc(v)}</small></div></div>`);
+  p.innerHTML = rows.join('') + errs.join('') + (SET.actions.length ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px">
+    ${SET.actions.map(a => `<button class="btn ${a.confirm ? 'danger' : ''}" data-act="${a.id}">${esc(a.label)}</button>`).join('')}</div>` : '');
+  p.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', async () => {
+    const a = SET.actions.find(x => x.id === b.dataset.act);
+    if (a.confirm && !confirm(a.confirm)) return;
+    b.disabled = true;
+    try { toast(esc((await api(`/api/cameras/${CAM.id}/action`, { action: a.id })).message)); }
+    catch (e) { toast(`<span class="bad">Failed:</span> ${esc(e.message)}`); }
+    finally { b.disabled = false; }
+  }));
+}
+function renderAdvanced(p) {
+  p.innerHTML = `<p class="muted" style="margin-top:0">Every value the camera stores for a section, as JSON. Edit and save; the camera's
+    reply is read back. Wrong values can make the camera misbehave, so change one thing at a time.</p>
+    <div class="ctl" style="margin-bottom:8px"><select id="raw-name">${SET.raw_configs.map(n => `<option>${esc(n)}</option>`).join('')}</select>
+    <button class="btn" id="raw-load">Load</button><button class="btn primary" id="raw-save" disabled>Save</button></div>
+    <textarea id="raw" spellcheck="false" placeholder="Pick a section and press Load"></textarea><div id="raw-msg" class="muted"></div>`;
+  const load = async () => {
+    $('#raw-msg').textContent = 'Reading…';
+    try { $('#raw').value = JSON.stringify((await api(`/api/cameras/${CAM.id}/config?name=${encodeURIComponent($('#raw-name').value)}`)).value, null, 2);
+          $('#raw-save').disabled = false; $('#raw-msg').textContent = ''; }
+    catch (e) { $('#raw-msg').innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
+  };
+  $('#raw-load').onclick = load; $('#raw-name').onchange = load;
+  $('#raw-save').onclick = async () => {
+    let value; try { value = JSON.parse($('#raw').value); } catch (e) { $('#raw-msg').innerHTML = `<span class="bad">Not valid JSON: ${esc(e.message)}</span>`; return; }
+    $('#raw-msg').textContent = 'Saving…';
+    try {
+      const r = await api(`/api/cameras/${CAM.id}/config`, { name: $('#raw-name').value, value });
+      $('#raw').value = JSON.stringify(r.saved, null, 2);
+      $('#raw-msg').innerHTML = r.identical ? '<span class="ok">Saved ✓ camera reports exactly this.</span>'
+        : '<span class="bad">Saved, but the camera changed some values (shown above is what it reports now).</span>';
+      loadSettings();
+    } catch (e) { $('#raw-msg').innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
+  };
+  load();
+}
+
+// ---------- detector (tuya-detect container) ----------
+let DSTATE = {}, OVERLAY = true, D = null;
+function badge(el, st) {
+  if (!el) return;
+  el.className = 'badge' + (st?.human ? ' person' : st?.motion ? ' motion' : '');
+  el.textContent = st?.human ? `Person${st.persons?.length > 1 ? ' ×' + st.persons.length : ''}` : st?.motion ? 'Motion' : '';
+}
+function drawOverlay() {
+  const cv = $('#ov'), stage = $('#stage');
+  const r = stage.getBoundingClientRect(), dpr = devicePixelRatio || 1;
+  cv.width = r.width * dpr; cv.height = r.height * dpr;
+  const ctx = cv.getContext('2d'); ctx.clearRect(0, 0, cv.width, cv.height);
+  const st = CAM && DSTATE[CAM.id], v = $('#d-screen video');
+  if (!OVERLAY || !st || !v || !v.videoWidth) return;
+  const sc = Math.min(cv.width / v.videoWidth, cv.height / v.videoHeight);
+  const w = v.videoWidth * sc, h = v.videoHeight * sc, ox = (cv.width - w) / 2, oy = (cv.height - h) / 2;
+  const box = (b, colour, label) => {
+    ctx.strokeStyle = colour; ctx.lineWidth = 2.5 * dpr; ctx.strokeRect(ox + b[0] * w, oy + b[1] * h, b[2] * w, b[3] * h);
+    if (label) { ctx.fillStyle = colour; ctx.font = `600 ${13 * dpr}px system-ui`; ctx.fillText(label, ox + b[0] * w + 3, oy + b[1] * h - 5 * dpr); }
+  };
+  (st.regions || []).forEach(b => box(b, '#ff9f1a'));
+  (st.persons || []).forEach(p => box(p.box, '#3cdc5a', `person ${Math.round(p.score * 100)}%`));
+}
+async function pollDetector() {
+  try {
+    DSTATE = await (await fetch(`${D}/api/state`)).json();
+    document.querySelectorAll('[data-badge]').forEach(el => badge(el, DSTATE[el.dataset.badge]));
+    if (CAM) {
+      const st = DSTATE[CAM.id]; badge($('#d-badge'), st);
+      $('#det-status').textContent = !st ? '— not analysed by the detector' : st.connected
+        ? `— watching at ${st.fps} fps${st.scene_change ? ' · re-learning the scene' : ''}` : `— ${st.error || 'not connected'}`;
+      if (st && st.event !== pollDetector.lastEvent) { pollDetector.lastEvent = st.event; loadEvents(); }
+    }
+  } catch { DSTATE = {}; if (CAM) $('#det-status').textContent = `— detector not reachable at ${D}`; }
+  drawOverlay();
+}
+async function loadEvents() {
+  if (!CAM || !D) return;
+  try {
+    const ev = await (await fetch(`${D}/api/events?camera=${encodeURIComponent(CAM.id)}&limit=24`)).json();
+    $('#events').innerHTML = ev.length ? ev.map(e => `<a class="ev" target="_blank" rel="noopener" ${e.snapshot ? `href="${D}/events/${e.id}.jpg"` : ''}>
+      ${e.snapshot ? `<img loading="lazy" src="${D}/events/${e.id}.jpg">` : '<img alt="">'}
+      <div><b class="${e.kind}">${e.kind === 'person' ? `Person${e.persons > 1 ? ' ×' + e.persons : ''} ${Math.round(e.best * 100)}%` : 'Motion'}</b><br>
+      ${esc(e.start.replace('T', ' '))}${e.end ? ' → ' + esc(e.end.slice(11)) : ' · now'}</div></a>`).join('')
+      : '<span class="muted">No events yet.</span>';
+  } catch { /* status line already says the detector is unreachable */ }
+}
+$('#b-ov').onclick = () => { OVERLAY = !OVERLAY; $('#b-ov').classList.toggle('on', OVERLAY); drawOverlay(); };
+addEventListener('resize', drawOverlay);
+
+// ---------- routing ----------
+function route() {
+  const id = decodeURIComponent(location.hash.slice(1));
+  document.body.classList.toggle('detail', !!id);
+  if (id) openCam(id);
+  else { CAM = null; $('#d-screen').innerHTML = ''; renderGrid(); }
+}
+window.addEventListener('hashchange', route);
+
+(async () => {
+  try { LIST = await api('/api/cameras'); }
+  catch (e) { $('#sub').textContent = 'Web server not reachable'; return; }
+  G = `${location.protocol}//${location.hostname}:${LIST.go2rtc_port || 8321}`;
+  const on = LIST.cameras.filter(c => c.online).length;
+  $('#sub').textContent = `${LIST.cameras.length} cameras · ${on} online`;
+  banner(LIST.go2rtc_error ? esc(LIST.go2rtc_error) : '');
+  D = `${location.protocol}//${location.hostname}:${LIST.detect_port || 8323}`;
+  route();
+  pollDetector(); setInterval(pollDetector, 700);
+})();
+</script>
+</body>
+</html>

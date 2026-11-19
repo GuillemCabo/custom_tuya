@@ -1,6 +1,6 @@
 """Web interface for the Haier AC: live values, settings, Max heat / Max cold presets.
 
-Run:  python -m acweb.server            (http://127.0.0.1:8320/)
+Run:  python -m acweb.server            (http://127.0.0.1:8320/, cameras on /cameras)
 Env:  AC_HOST (default 127.0.0.1), AC_PORT (8320), AC_IP (192.168.1.84),
       AC_ID (first device in devices.json if unset), AC_VERSION (3.5), AC_DEVICES (devices.json),
       AC_NAME (page title, "Air conditioner")
@@ -8,14 +8,20 @@ Env:  AC_HOST (default 127.0.0.1), AC_PORT (8320), AC_IP (192.168.1.84),
 import json
 import logging
 import os
+import re
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from urllib.parse import parse_qs, urlparse
+
+from .cameras import Cameras
 from .device import AC, NOISY
 from .dps import DPS, PRESETS, convert
 
 ROOT = Path(__file__).resolve().parent
 INDEX = (ROOT / "static" / "index.html").read_bytes()
+CAMERAS_PAGE = ROOT / "static" / "cameras.html"
+CAM_ROUTE = re.compile(r"^/api/cameras/([\w.-]+)/(\w+)$")
 log = logging.getLogger("acweb")
 
 
@@ -31,7 +37,7 @@ def load_ac():
               float(os.environ.get("AC_VERSION", "3.5"))), os.environ.get("AC_NAME", "Air conditioner")
 
 
-AC_DEV, AC_NAME = None, None
+AC_DEV, AC_NAME, CAMS = None, None, None
 
 
 def snapshot():
@@ -66,6 +72,9 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_GET(self):
+        url = urlparse(self.path)
+        if url.path.startswith("/api/cameras") or url.path == "/cameras":
+            return self._cameras("GET", url, None)
         if self.path in ("/", "/index.html"):
             return self._send(200, INDEX, "text/html; charset=utf-8")
         if self.path == "/api/status":
@@ -78,6 +87,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             n = int(self.headers.get("Content-Length") or 0)
             body = json.loads(self.rfile.read(n) or b"{}")
+            if self.path.startswith("/api/cameras"):
+                return self._cameras("POST", urlparse(self.path), body)
             if self.path == "/api/set":
                 return self._send(200, {"results": [AC_DEV.set(str(body["dp"]), body["value"])]})
             if self.path == "/api/preset":
@@ -90,11 +101,46 @@ class Handler(BaseHTTPRequestHandler):
             self._send(502, {"error": str(e)})
 
 
+    def _cameras(self, method, url, body):
+        try:
+            if url.path == "/cameras":
+                return self._send(200, CAMERAS_PAGE.read_bytes(), "text/html; charset=utf-8")
+            if url.path == "/api/cameras":
+                return self._send(200, CAMS.list())
+            m = CAM_ROUTE.match(url.path)
+            if not m:
+                return self._send(404, {"error": "not found"})
+            cam, what = CAMS.get(m.group(1)), m.group(2)
+            if method == "GET" and what == "settings":
+                return self._send(200, cam.settings())
+            if method == "GET" and what == "config":
+                return self._send(200, {"value": cam.get_raw(parse_qs(url.query)["name"][0])})
+            if method == "POST" and what == "set":
+                return self._send(200, {"results": [cam.set(body["key"], body["value"])]})
+            if method == "POST" and what == "config":
+                return self._send(200, cam.put_raw(body["name"], body["value"]))
+            if method == "POST" and what == "ptz":
+                return self._send(200, {"ret": cam.ptz(body["command"], bool(body.get("stop")), body.get("preset"))})
+            if method == "POST" and what == "action":
+                r = cam.action(body["action"])
+                return self._send(200, r if isinstance(r, dict) else {"message": r})
+            if method == "POST" and what == "connect":
+                return self._send(200, CAMS.connect(cam.id))
+            return self._send(404, {"error": "not found"})
+        except (ValueError, KeyError) as e:
+            self._send(400, {"error": str(e).strip("'")})
+        except Exception as e:  # noqa: BLE001
+            log.exception("camera request failed")
+            self._send(502, {"error": str(e)})
+
+
 def main():
-    global AC_DEV, AC_NAME
+    global AC_DEV, AC_NAME, CAMS
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     AC_DEV, AC_NAME = load_ac()
     AC_DEV.start()
+    CAMS = Cameras()
+    CAMS.start()
     host, port = os.environ.get("AC_HOST", "127.0.0.1"), int(os.environ.get("AC_PORT", "8320"))
     log.info("web interface on http://%s:%d/", host, port)
     ThreadingHTTPServer((host, port), Handler).serve_forever()
